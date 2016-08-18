@@ -1,0 +1,60 @@
+#ifndef ADCREADER_H
+#define ADCREADER_H
+
+#include "deviceinfo.h"
+
+#include <QString>
+#include <QDebug>
+#include <QDateTime>
+#include <QVector>
+#include <QTimer>
+#include <QBluetoothDeviceDiscoveryAgent>
+#include <QBluetoothDeviceInfo>
+#include <QLowEnergyController>
+#include <QLowEnergyService>
+class ADCReader: public QObject
+{
+public:
+    ADCReader();
+    ~ADCReader();
+public slots:
+    void deviceSearch();
+  void  disconnectService();
+     void connectToService(const QString &address);
+private:
+QBluetoothDeviceDiscoveryAgent *m_deviceDiscoveryAgent;
+QLowEnergyController *m_control;
+QList<QObject*> m_devices;
+QLowEnergyService *m_service;
+QVector<quint16> m_measurements;
+DeviceInfo m_currentDevice;
+bool foundHeartRateService;
+QDateTime m_start;
+//QDateTime m_stop;
+QLowEnergyDescriptor m_notificationDesc;
+
+private slots:
+void addDevice(const QBluetoothDeviceInfo&);
+void deviceScanError(QBluetoothDeviceDiscoveryAgent::Error);
+void scanFinished();
+  void connectToService(const QString &address);
+void serviceDiscovered(const QBluetoothUuid &);
+void serviceScanDone();
+void serviceStateChanged(QLowEnergyService::ServiceState s);
+void updateHeartRateValue(const QLowEnergyCharacteristic &c,
+                              const QByteArray &value);
+void confirmedDescriptorWrite(const QLowEnergyDescriptor &d,
+                              const QByteArray &value);
+void controllerError(QLowEnergyController::Error);
+void deviceConnected();
+    void deviceDisconnected();
+    //void serviceError(QLowEnergyService::ServiceError e);
+
+};
+
+//public:
+//   QString getAddress() const;
+
+
+
+#endif // ADCREADER_H

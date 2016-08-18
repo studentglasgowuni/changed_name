@@ -1,0 +1,248 @@
+#include 'adcreader.h'
+#include <QtEndian>
+
+ADCReader::ADCReader():
+    m_currentDevice(QBluetoothDeviceInfo()),m_control(0), m_service(0), foundHeartRateService(false)
+{
+//! [devicediscovery-1]
+    m_deviceDiscoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
+
+    connect(m_deviceDiscoveryAgent, SIGNAL(deviceDiscovered(const QBluetoothDeviceInfo&)),
+            this, SLOT(addDevice(const QBluetoothDeviceInfo&)));
+    connect(m_deviceDiscoveryAgent, SIGNAL(error(QBluetoothDeviceDiscoveryAgent::Error)),
+            this, SLOT(deviceScanError(QBluetoothDeviceDiscoveryAgent::Error)));
+    connect(m_deviceDiscoveryAgent, SIGNAL(finished()), this, SLOT(scanFinished()));
+    //! [devicediscovery-1]
+//qDeleteAll(m_devices);
+//    m_devices.clear();
+//    //! [devicediscovery-2]
+//    m_deviceDiscoveryAgent->start();
+//    //! [devicediscovery-2]
+//   // setMessage("Scanning for devices...");
+//    qDebug()<<"Scanning for devices..";
+}
+ADCReader::~ADCReader()
+{
+    qDeleteAll(m_devices);
+    m_devices.clear();
+}
+void ADCReader::deviceSearch()
+{
+    qDeleteAll(m_devices);
+    m_devices.clear();
+    //! [devicediscovery-2]
+    m_deviceDiscoveryAgent->start();
+    //! [devicediscovery-2]
+   // setMessage("Scanning for devices...");
+    qDebug()<<"Scanning for devices..";
+}
+void ADCReader::addDevice(const QBluetoothDeviceInfo &device)
+{
+    if (device.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration) {
+        qWarning() << "Discovered LE Device name: " << device.name() << " Address: "
+                   << device.address().toString();
+//! [devicediscovery-3]
+        DeviceInfo *dev = new DeviceInfo(device);
+        m_devices.append(dev);
+       // setMessage("Low Energy device found. Scanning for more...");
+        qDebug()<<"Low Energy device found. Scanning for more...";
+//! [devicediscovery-4]
+    }
+    //...
+}
+//! [devicediscovery-4]
+void ADCReader::deviceScanError(QBluetoothDeviceDiscoveryAgent::Error error)
+{
+    if (error == QBluetoothDeviceDiscoveryAgent::PoweredOffError)
+        //setMessage("The Bluetooth adaptor is powered off, power it on before doing discovery.");
+        qDebug()<<"The Bluetooth adaptor is powered off, power it on before doing discovery.";
+    else if (error == QBluetoothDeviceDiscoveryAgent::InputOutputError)
+       // setMessage("Writing or reading from the device resulted in an error.");
+    qDebug()<<"Writing or reading from the device resulted in an error.";
+    else
+      //  setMessage("An unknown error has occurred.");
+    qDebug()<<"An unknown error has occurred.";
+}
+void ADCReader::scanFinished()
+{
+    if (m_devices.size() == 0)
+        //setMessage("No Low Energy devices found");
+         qDebug()<<"No Low Energy devices found";
+   // Q_EMIT nameChanged();
+}
+void ADCReader::connectToService(const QString &address)
+{
+    m_measurements.clear();
+
+    bool deviceFound = false;
+    for (int i = 0; i < m_devices.size(); i++) {
+        if (((DeviceInfo*)m_devices.at(i))->getAddress() == address ) {
+            m_currentDevice.setDevice(((DeviceInfo*)m_devices.at(i))->getDevice());
+            //setMessage("Connecting to device...");
+            qDebug()<<"Connecting to device...";
+            deviceFound = true;
+            break;
+        }
+    }
+    // we are running demo mode
+   // if (!deviceFound) {
+     //   startDemo();
+     //   return;
+   // }
+
+    if (m_control) {
+        m_control->disconnectFromDevice();
+        delete m_control;
+        m_control = 0;
+
+    }
+    //! [Connect signals]
+    m_control = new QLowEnergyController(m_currentDevice.getDevice(), this);
+    connect(m_control, SIGNAL(serviceDiscovered(QBluetoothUuid)),
+            this, SLOT(serviceDiscovered(QBluetoothUuid)));
+    connect(m_control, SIGNAL(discoveryFinished()),
+            this, SLOT(serviceScanDone()));
+    connect(m_control, SIGNAL(error(QLowEnergyController::Error)),
+            this, SLOT(controllerError(QLowEnergyController::Error)));
+    connect(m_control, SIGNAL(connected()),
+            this, SLOT(deviceConnected()));
+    connect(m_control, SIGNAL(disconnected()),
+            this, SLOT(deviceDisconnected()));
+
+    m_control->connectToDevice();
+    //! [Connect signals]
+}
+void ADCReader::serviceDiscovered(const QBluetoothUuid &gatt)
+{
+    if (gatt == (QBluetoothUuid(QBluetoothUuid::HeartRate))) {
+       // setMessage("Heart Rate service discovered. Waiting for service scan to be done...");
+    qDebug()<<"Heart Rate service discovered. Waiting for service scan to be done...";
+        //explicit QBluetoothUuid(quint16)=gatt;
+        foundHeartRateService = true;
+    }
+}
+void ADCReader::serviceScanDone()
+{
+    delete m_service;
+    m_service = 0;
+
+    //! [Filter HeartRate service 2]
+    if (foundHeartRateService) {
+        //setMessage("Connecting to service...");
+        qDebug()<<"Connecting to service...";
+        m_service = m_control->createServiceObject(
+                    QBluetoothUuid(QBluetoothUuid::HeartRate), this);
+    }
+
+    if (!m_service) {
+       // setMessage("Heart Rate Service not found.");
+        qDebug()<<"Heart Rate Service not found.";
+        return;
+    }
+
+    connect(m_service, SIGNAL(stateChanged(QLowEnergyService::ServiceState)),
+            this, SLOT(serviceStateChanged(QLowEnergyService::ServiceState)));
+    connect(m_service, SIGNAL(characteristicChanged(QLowEnergyCharacteristic,QByteArray)),
+            this, SLOT(updateHeartRateValue(QLowEnergyCharacteristic,QByteArray)));
+    connect(m_service, SIGNAL(descriptorWritten(QLowEnergyDescriptor,QByteArray)),
+            this, SLOT(confirmedDescriptorWrite(QLowEnergyDescriptor,QByteArray)));
+
+    m_service->discoverDetails();
+    //! [Filter HeartRate service 2]
+}
+void ADCReader::serviceStateChanged(QLowEnergyService::ServiceState s)
+{
+    switch (s) {
+    case QLowEnergyService::ServiceDiscovered:
+    {
+        const QLowEnergyCharacteristic hrChar = m_service->characteristic(
+                    QBluetoothUuid(QBluetoothUuid::HeartRateMeasurement));
+        if (!hrChar.isValid()) {
+           // setMessage("HR Data not found.");
+            qDebug<<"HR Data not found.";
+            break;
+        }
+
+        const QLowEnergyDescriptor m_notificationDesc = hrChar.descriptor(
+                    QBluetoothUuid::ClientCharacteristicConfiguration);
+        if (m_notificationDesc.isValid()) {
+            m_service->writeDescriptor(m_notificationDesc, QByteArray::fromHex("0100"));
+            //setMessage("Measuring");
+            qDebug<<"Measuring";
+            m_start = QDateTime::currentDateTime();
+        }
+
+        break;
+    }
+    default:
+        //nothing for now
+        break;
+    }
+}
+void ADCReader::updateHeartRateValue(const QLowEnergyCharacteristic &c,
+                                     const QByteArray &value)
+{
+    // ignore any other characteristic change -> shouldn't really happen though
+    if (c.uuid() != QBluetoothUuid(QBluetoothUuid::HeartRateMeasurement))
+        return;
+
+
+    const quint8 *data = reinterpret_cast<const quint8 *>(value.constData());
+    quint8 flags = data[0];
+
+    //Heart Rate
+    if (flags & 0x1) { // HR 16 bit? otherwise 8 bit
+        const quint16 heartRate = qFromLittleEndian<quint16>(data[1]);
+        //qDebug() << "16 bit HR value:" << heartRate;
+        m_measurements.append(heartRate);
+    } else {
+        const quint8 *heartRate = &data[1];
+        m_measurements.append(*heartRate);
+        //qDebug() << "8 bit HR value:" << *heartRate;
+    }
+}
+void ADCReader::confirmedDescriptorWrite(const QLowEnergyDescriptor &d,
+                                         const QByteArray &value)
+{
+    if (d.isValid() && d == m_notificationDesc && value == QByteArray("0000")) {
+        //disabled notifications -> assume disconnect intent
+        m_control->disconnectFromDevice();
+        delete m_service;
+        m_service = 0;
+    }
+}
+//! [Error handling]
+void ADCReader::controllerError(QLowEnergyController::Error error)
+{
+   // setMessage("Cannot connect to remote device.");
+    qDebug<<"Cannot connect to remote device.";
+    qWarning() << "Controller Error:" << error;
+}
+//! [Error handling]
+void ADCReader::deviceConnected()
+{
+    m_control->discoverServices();
+}
+void ADCReader::deviceDisconnected()
+{
+    //setMessage("Heart Rate service disconnected");
+       qDebug<<"Heart Rate service disconnected";
+    qWarning() << "Remote device disconnected";
+}
+void ADCReader::disconnectService()
+{
+    foundHeartRateService = false;
+    m_stop = QDateTime::currentDateTime();
+
+    if (m_devices.isEmpty()) {
+        return;
+    }
+//disable notifications
+    if (m_notificationDesc.isValid() && m_service) {
+        m_service->writeDescriptor(m_notificationDesc, QByteArray::fromHex("0000"));
+    } else {
+        m_control->disconnectFromDevice();
+        delete m_service;
+        m_service = 0;
+    }
+}

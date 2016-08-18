@@ -1,0 +1,20 @@
+#include <QCoreApplication>
+#include <QtCore/QLoggingCategory>
+#include <QQmlContext>
+#include <QGuiApplication>
+#include <QQuickView>
+#include "adcreader.h"
+
+int main(int argc, char *argv[])
+{
+    //QCoreApplication a(argc, argv);
+    QGuiApplication app(argc, argv);
+    
+ADCReader adcreader;
+QQuickView *view = new QQuickView;
+view->rootContext()->setContextProperty("heartRate", &adcreader);
+view->setSource(QUrl("qrc:/assets/main.qml"));
+view->setResizeMode(QQuickView::SizeRootObjectToView);
+view->show();
+    return a.exec();
+}

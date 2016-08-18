@@ -1,0 +1,19 @@
+#ifndef DEVICEINFO_H
+#define DEVICEINFO_H
+
+#include <QString>
+#include <QObject>
+#include <qbluetoothdeviceinfo.h>
+#include <qbluetoothaddress.h>
+class DeviceInfo: public QObject
+{
+private:
+    QBluetoothDeviceInfo m_device;
+public:
+ DeviceInfo(const QBluetoothDeviceInfo &device);
+QString getAddress() const;
+void setDevice(const QBluetoothDeviceInfo &device);
+QBluetoothDeviceInfo getDevice() const;
+};
+
+#endif // DEVICEINFO_H
